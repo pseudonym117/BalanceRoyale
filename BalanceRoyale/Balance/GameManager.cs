@@ -7,60 +7,44 @@
 
     using BalanceRoyale.Battles;
 
-    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.Logging;
     using Microsoft.VisualStudio.Threading;
 
-    public class GameManager : IGameManager<HttpContext>
+    public class GameManager<T> : IGameManager<T>
     {
-        private readonly IGameEndHandler<HttpContext> gameEndHandler;
+        private readonly IGameEndHandler<T> gameEndHandler;
         private readonly IGameFactory gameFactory;
         private readonly GameConfig gameConfig;
 
         private readonly SemaphoreSlim pendingPlayersLock = new SemaphoreSlim(1);
-        private readonly IList<Player<HttpContext>> pendingPlayers = new List<Player<HttpContext>>();
+        private readonly IList<Player<T>> pendingPlayers;
 
-        private readonly CancellationTokenSource gameStartTokenSource = new CancellationTokenSource();
-        private Task? gameStartTask;
+        private readonly ManualResetEventSlim startGameEvent = new ManualResetEventSlim();
 
-        public GameManager(IGameEndHandler<HttpContext> gameEndHandler, IGameFactory gameFactory, GameConfig gameConfig)
+        private readonly SemaphoreSlim currentGameLock = new SemaphoreSlim(1);
+        private Task? currentGameTask;
+
+        public GameManager(IGameEndHandler<T> gameEndHandler, IGameFactory gameFactory, GameConfig gameConfig)
         {
             this.gameEndHandler = gameEndHandler;
             this.gameFactory = gameFactory;
             this.gameConfig = gameConfig;
+
+            this.pendingPlayers = new List<Player<T>>((int) this.gameConfig.MaxPlayers);
         }
 
-        public async Task AddPlayer(HttpContext playerContext)
+        public async Task RunGameForPlayerAsync(T playerContext)
         {
-            var player = new Player<HttpContext>(playerContext);
+            var player = new Player<T>(playerContext);
 
-            await this.pendingPlayersLock.WaitAsync();
+            await this.pendingPlayersLock.WaitAsync().ConfigureAwait(false);
             try
             {
                 this.pendingPlayers.Add(player);
 
-                if (this.pendingPlayers.Count > this.gameConfig.MaxPlayers)
+                if (this.pendingPlayers.Count >= this.gameConfig.MaxPlayers)
                 {
-                    this.CancelAndResetTimerNoLock();
-                }
-                else if (this.gameStartTask == null)
-                {
-                    this.gameStartTask = 
-                        Task.Delay(this.gameConfig.MaxQueueTime)
-                            .ContinueWith(async task => 
-                            {
-                                await this.pendingPlayersLock.WaitAsync();
-                                try
-                                {
-                                    var players = this.GetAndClearPlayersNoLock();
-                                    await this.StartGameAsync(players);
-                                    this.gameStartTask = null;
-                                }
-                                finally
-                                {
-                                    this.pendingPlayersLock.Release();
-                                }
-
-                            }, this.gameStartTokenSource.Token, TaskContinuationOptions.None, TaskScheduler.Default);
+                    this.startGameEvent.Set();
                 }
             }
             finally
@@ -68,35 +52,50 @@
                 this.pendingPlayersLock.Release();
             }
 
-            if (this.gameStartTask != null)
+            await this.GetQueueTaskAsync().ConfigureAwait(false);
+        }
+
+        private async Task GetQueueTaskAsync()
+        {
+            if (this.currentGameTask == null || this.currentGameTask.IsCompleted)
             {
+                await this.currentGameLock.WaitAsync();
                 try
                 {
-                    await this.gameStartTask;
+                    if (this.currentGameTask == null || this.currentGameTask.IsCompleted)
+                    {
+                        this.currentGameTask = Task.Factory.StartNew(async () =>
+                        {
+                            this.startGameEvent.Wait((int)this.gameConfig.MaxQueueTime.TotalMilliseconds);
+
+                            await this.pendingPlayersLock.WaitAsync().ConfigureAwait(false);
+                            try
+                            {
+                                var players = this.pendingPlayers.ToList();
+                                this.pendingPlayers.Clear();
+
+                                // todo: with a bit of optimizing can probs do this w/o a lock. but cant right now.
+                                await this.StartGameAsync(players).ConfigureAwait(false);
+
+                                this.startGameEvent.Reset();
+                            }
+                            finally
+                            {
+                                this.pendingPlayersLock.Release();
+                            }
+                        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                    }
                 }
-                catch (TaskCanceledException)
+                finally
                 {
-                    // expected case when we hit lobby limit
+                    this.currentGameLock.Release();
                 }
             }
+
+            await this.currentGameTask;
         }
 
-        private IList<Player<HttpContext>> GetAndClearPlayersNoLock()
-        {
-            var players = this.pendingPlayers.ToList();
-            this.pendingPlayers.Clear();
-            return players;
-        }
-
-        private void CancelAndResetTimerNoLock()
-        {
-            if (this.gameStartTask != null)
-            {
-                this.gameStartTokenSource.Cancel();
-            }
-        }
-
-        private async Task StartGameAsync(IList<Player<HttpContext>> players)
+        private async Task StartGameAsync(IList<Player<T>> players)
         {
             var game = this.gameFactory.CreateGame(players);
 
@@ -104,7 +103,7 @@
             {
                 var result = await game.PlayAsync();
 
-                await this.gameEndHandler.HandleGameEnd(result);
+                await this.gameEndHandler.HandleGameEndAsync(result);
             }
         }
     }

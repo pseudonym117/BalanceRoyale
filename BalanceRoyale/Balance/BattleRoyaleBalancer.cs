@@ -1,8 +1,5 @@
 ﻿namespace BalanceRoyale.Balance
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
     using System.Threading.Tasks;
 
     using Microsoft.AspNetCore.Http;
@@ -16,9 +13,9 @@
             this.currentGameManager = currentGameManager;
         }
 
-        public async Task HandleRequest(HttpContext context)
+        public async Task HandleRequestAsync(HttpContext context)
         {
-            await this.currentGameManager.AddPlayer(context);
+            await this.currentGameManager.RunGameForPlayerAsync(context);
         }
     }
 }

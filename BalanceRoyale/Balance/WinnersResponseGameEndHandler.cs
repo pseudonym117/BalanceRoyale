@@ -1,19 +1,27 @@
 ﻿namespace BalanceRoyale.Balance
 {
-    using System;
-    using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
 
     using BalanceRoyale.Battles;
 
     using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.Logging;
 
     public class WinnersResponseGameEndHandler : IGameEndHandler<HttpContext>
     {
-        public async Task HandleGameEnd(GameReport<HttpContext> gameReport)
+        private readonly ILogger<WinnersResponseGameEndHandler> logger;
+
+        public WinnersResponseGameEndHandler(ILogger<WinnersResponseGameEndHandler> logger)
+        {
+            this.logger = logger;
+        }
+
+        public async Task HandleGameEndAsync(GameReport<HttpContext> gameReport)
         {
             var winner = gameReport.Winners.First();
+
+            logger.LogInformation("Winner: {}", winner.Context.TraceIdentifier);
 
             var winnersResponse = winner.Context.Request.Path;
 

@@ -6,6 +6,6 @@
 
     public interface IBalancer
     {
-        public Task HandleRequest(HttpContext context);
+        public Task HandleRequestAsync(HttpContext context);
     }
 }

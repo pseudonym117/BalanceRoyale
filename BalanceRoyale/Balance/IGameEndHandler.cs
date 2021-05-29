@@ -6,6 +6,6 @@
 
     public interface IGameEndHandler<T>
     {
-        public Task HandleGameEnd(GameReport<T> gameReport);
+        public Task HandleGameEndAsync(GameReport<T> gameReport);
     }
 }
