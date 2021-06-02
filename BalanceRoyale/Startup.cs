@@ -1,6 +1,7 @@
 namespace BalanceRoyale
 {
     using System;
+    using System.Linq;
 
     using BalanceRoyale.Balance;
     using BalanceRoyale.Battles;
@@ -18,11 +19,21 @@ namespace BalanceRoyale
         // For more information on how to configure your application, visit https://go.microsoft.com/fwlink/?LinkID=398940
         public void ConfigureServices(IServiceCollection services)
         {
+            //services.AddSingleton(new Uri("http://localhost:8000"));
+            //services.AddSingleton<IRequestHandler, ProxyingRequestHandler>();
+
+            services.AddSingleton<ILoadBalancingStrategy<IRequestHandler>, RoundRobinLoadBalancingStrategy<IRequestHandler>>();
+
+            var servers = Enumerable.Range(1, 3).Select(id => (IRequestHandler) new RepeatRequestHandler(id));
+            services.AddSingleton(servers);
+
+            services.AddSingleton<IRequestHandler, LoadBalancingRequestHandler>();
+
             services.AddSingleton(this.BuildGameConfig);
             services.AddSingleton<IGameFactory, GameFactory>();
             services.AddSingleton<IGameEndHandler<HttpContext>, WinnersResponseGameEndHandler>();
             services.AddSingleton<IGameManager<HttpContext>, GameManager<HttpContext>>();
-            services.AddSingleton<IBalancer, BattleRoyaleBalancer>();
+            services.AddSingleton<IBalancer, GameBalancer>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

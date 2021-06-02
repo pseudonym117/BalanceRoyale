@@ -4,11 +4,11 @@
 
     using Microsoft.AspNetCore.Http;
 
-    public class BattleRoyaleBalancer : IBalancer
+    public class GameBalancer : IBalancer
     {
         private readonly IGameManager<HttpContext> currentGameManager;
 
-        public BattleRoyaleBalancer(IGameManager<HttpContext> currentGameManager)
+        public GameBalancer(IGameManager<HttpContext> currentGameManager)
         {
             this.currentGameManager = currentGameManager;
         }
